@@ -5,3 +5,4 @@
 #cmakedefine ALLEGRO_CFG_KCM_OSS
 #cmakedefine ALLEGRO_CFG_KCM_PULSEAUDIO
 #cmakedefine ALLEGRO_CFG_KCM_AQUEUE
+#cmakedefine ALLEGRO_CFG_KCM_XAUDIO2

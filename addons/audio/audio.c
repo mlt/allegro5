@@ -49,6 +49,9 @@ ALLEGRO_AUDIO_DRIVER *_al_kcm_driver = NULL;
 #if defined(ALLEGRO_SDL)
    extern struct ALLEGRO_AUDIO_DRIVER _al_kcm_sdl_driver;
 #endif
+#if defined(ALLEGRO_CFG_KCM_XAUDIO2)
+   extern struct ALLEGRO_AUDIO_DRIVER _al_kcm_xaudio2_driver;
+#endif
 
 /* Channel configuration helpers */
 
@@ -193,6 +196,9 @@ static ALLEGRO_AUDIO_DRIVER_ENUM get_config_audio_driver(void)
    if (0 == _al_stricmp(value, "DSOUND") || 0 == _al_stricmp(value, "DIRECTSOUND"))
       return ALLEGRO_AUDIO_DRIVER_DSOUND;
 
+   if (0 == _al_stricmp(value, "XAUDIO2"))
+      return ALLEGRO_AUDIO_DRIVER_XAUDIO2;
+
    return ALLEGRO_AUDIO_DRIVER_AUTODETECT;
 }
 
@@ -284,6 +290,11 @@ static bool do_install_audio(ALLEGRO_AUDIO_DRIVER_ENUM mode)
 #endif
 #if defined(ALLEGRO_CFG_KCM_DSOUND)
          retVal = do_install_audio(ALLEGRO_AUDIO_DRIVER_DSOUND);
+         if (retVal)
+            return retVal;
+#endif
+#if defined(ALLEGRO_CFG_KCM_XAUDIO2)
+         retVal = do_install_audio(ALLEGRO_AUDIO_DRIVER_XAUDIO2);
          if (retVal)
             return retVal;
 #endif
@@ -395,6 +406,19 @@ static bool do_install_audio(ALLEGRO_AUDIO_DRIVER_ENUM mode)
             return false;
          #else
             _al_set_error(ALLEGRO_INVALID_PARAM, "DirectSound not available on this platform");
+            return false;
+         #endif
+
+      case ALLEGRO_AUDIO_DRIVER_XAUDIO2:
+         #if defined(ALLEGRO_CFG_KCM_XAUDIO2)
+            if (_al_kcm_xaudio2_driver.open() == 0) {
+               ALLEGRO_INFO("Using XAudio2 driver\n");
+               _al_kcm_driver = &_al_kcm_xaudio2_driver;
+               return true;
+            }
+            return false;
+         #else
+            _al_set_error(ALLEGRO_INVALID_PARAM, "XAudio2 not available on this platform");
             return false;
          #endif
 

@@ -4,6 +4,7 @@ option(WANT_PULSEAUDIO "Enable PulseAudio audio driver (Unix)" on)
 option(WANT_OPENAL "Enable OpenAL digital audio driver" on)
 option(WANT_OPENSL "Enable OpenSL digital audio driver (Android)" on)
 option(WANT_DSOUND "Enable DSound digital audio driver (Windows)" on)
+option(WANT_XAUDIO2 "Enable XAudio2 digital audio driver (Windows)" on)
 option(WANT_AQUEUE "Enable AudioQueue digital audio driver (Mac)" on)
 
 set(AUDIO_SOURCES
@@ -127,8 +128,18 @@ if(SUPPORT_DSOUND)
     set(SUPPORT_AUDIO 1)
 endif(SUPPORT_DSOUND)
 
+if(WANT_XAUDIO2 AND WIN32)
+    set(ALLEGRO_CFG_KCM_XAUDIO2 1)
+    list(APPEND AUDIO_SOURCES xaudio2.cpp)
+    # TODO: Check include on older systems and have CMake figure out 2_8, 2_9, or lib
+    list(APPEND AUDIO_LIBRARIES $<IF:$<CXX_COMPILER_ID:MSVC>,Xaudio2.lib,-lxaudio2_9 -lksuser>)
+    set(SUPPORT_AUDIO 1)
+    set(SUPPORT_XAUDIO2 1)
+endif(WANT_XAUDIO2 AND WIN32)
+
 if(WIN32)
     audio_summary(" - DirectSound" SUPPORT_DSOUND)
+    audio_summary(" - XAudio2" SUPPORT_XAUDIO2)
 endif()
 
 if(WANT_AQUEUE AND MACOSX)
