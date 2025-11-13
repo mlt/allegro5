@@ -52,6 +52,9 @@ ALLEGRO_AUDIO_DRIVER *_al_kcm_driver = NULL;
 #if defined(ALLEGRO_CFG_KCM_XAUDIO2)
    extern struct ALLEGRO_AUDIO_DRIVER _al_kcm_xaudio2_driver;
 #endif
+#if defined(ALLEGRO_CFG_KCM_WASAPI)
+   extern struct ALLEGRO_AUDIO_DRIVER _al_kcm_wasapi_driver;
+#endif
 
 /* Channel configuration helpers */
 
@@ -199,6 +202,9 @@ static ALLEGRO_AUDIO_DRIVER_ENUM get_config_audio_driver(void)
    if (0 == _al_stricmp(value, "XAUDIO2"))
       return ALLEGRO_AUDIO_DRIVER_XAUDIO2;
 
+   if (0 == _al_stricmp(value, "WASAPI"))
+      return ALLEGRO_AUDIO_DRIVER_WASAPI;
+
    return ALLEGRO_AUDIO_DRIVER_AUTODETECT;
 }
 
@@ -295,6 +301,11 @@ static bool do_install_audio(ALLEGRO_AUDIO_DRIVER_ENUM mode)
 #endif
 #if defined(ALLEGRO_CFG_KCM_XAUDIO2)
          retVal = do_install_audio(ALLEGRO_AUDIO_DRIVER_XAUDIO2);
+         if (retVal)
+            return retVal;
+#endif
+#if defined(ALLEGRO_CFG_KCM_WASAPI)
+         retVal = do_install_audio(ALLEGRO_AUDIO_DRIVER_WASAPI);
          if (retVal)
             return retVal;
 #endif
@@ -419,6 +430,19 @@ static bool do_install_audio(ALLEGRO_AUDIO_DRIVER_ENUM mode)
             return false;
          #else
             _al_set_error(ALLEGRO_INVALID_PARAM, "XAudio2 not available on this platform");
+            return false;
+         #endif
+
+      case ALLEGRO_AUDIO_DRIVER_WASAPI:
+         #if defined(ALLEGRO_CFG_KCM_WASAPI)
+            if (_al_kcm_wasapi_driver.open() == 0) {
+               ALLEGRO_INFO("Using WASAPI driver\n");
+               _al_kcm_driver = &_al_kcm_wasapi_driver;
+               return true;
+            }
+            return false;
+         #else
+            _al_set_error(ALLEGRO_INVALID_PARAM, "WASAPI not available on this platform");
             return false;
          #endif
 
