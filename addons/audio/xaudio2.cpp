@@ -30,9 +30,11 @@ extern "C" {
 /* XAudio2 vars */
 static ComPtr<IXAudio2> device;
 static char err_str[100];
-static unsigned int buffer_size = 1024; // in samples
+static unsigned int buffer_size = 512; // in samples
+static unsigned int buffers_count = 2;
 
-#define MIN_BUFFER_SIZE    128
+#define MIN_BUFFER_SIZE    32
+#define MIN_BUFFERS_COUNT    2
 
 #define CASE_XAUDIO2_ERROR(err) case err: strcpy(err_str, #err); break
 
@@ -52,6 +54,8 @@ static char *get_error(HRESULT hr)
 
 IXAudio2MasteringVoice *mastering_voice = NULL;
 
+class VoiceCallback;
+
 /* Custom struct to hold voice information XAudio2 needs */
 struct ALLEGRO_XAUDIO2_DATA {
    int bits_per_sample;
@@ -60,13 +64,24 @@ struct ALLEGRO_XAUDIO2_DATA {
    WAVEFORMATEXTENSIBLE wave_fmt;
    XAUDIO2_BUFFER buffer;
    int stop_voice;
+   std::unique_ptr<VoiceCallback> callback;
+   HANDLE thread;
 };
 
-char silence[1024];
+#define BUFFER_END 0
+#define WANT_QUIT 1
+#define BUFFER_END_EVENT events[BUFFER_END]
+#define WANT_QUIT_EVENT events[WANT_QUIT]
 
 class VoiceCallback : public IXAudio2VoiceCallback
 {
+   ALLEGRO_VOICE *voice; // to set stream_end
+   VoiceCallback() = delete;
 public:
+   HANDLE events[2]; /* buffer end, want quit */
+   VoiceCallback(ALLEGRO_VOICE *v) : voice(v),
+      events{ CreateEvent(NULL, FALSE, FALSE, NULL), CreateEvent(NULL, FALSE, FALSE, NULL) } {}
+   ~VoiceCallback() { CloseHandle(BUFFER_END_EVENT); CloseHandle(WANT_QUIT_EVENT); }
 protected:
     STDMETHOD_(void, OnVoiceProcessingPassStart) (THIS_ UINT32 BytesRequired) override {
         (void)BytesRequired;
@@ -77,14 +92,17 @@ protected:
     }
     STDMETHOD_(void, OnStreamEnd) (THIS) override {
        ALLEGRO_DEBUG("OnStreamEnd called\n");
+       ALLEGRO_XAUDIO2_DATA *ex_data = (ALLEGRO_XAUDIO2_DATA *)voice->extra;
+       ex_data->stop_voice = 1;
     }
     STDMETHOD_(void, OnBufferStart) (THIS_ void* pBufferContext) override {
        //ALLEGRO_DEBUG("OnBufferStart called\n");
+#if 0
        HRESULT hr;
-       ALLEGRO_VOICE *const voice = (ALLEGRO_VOICE *)pBufferContext;
+       //ALLEGRO_VOICE *const voice = (ALLEGRO_VOICE *)pBufferContext;
        ALLEGRO_XAUDIO2_DATA *ex_data = (ALLEGRO_XAUDIO2_DATA *)voice->extra;
-       const int bytes_per_sample = ex_data->bits_per_sample >> 3;
-       unsigned int samples = buffer_size;
+       const int bytes_per_sample = ex_data->bits_per_sample / 8;
+       unsigned int samples = buffer_size;// / bytes_per_sample / ex_data->channels;
        const void* data = _al_voice_update(voice, voice->mutex, &samples);
        if (!data) {
           hr = ex_data->voice->Discontinuity();
@@ -99,10 +117,12 @@ protected:
        if (FAILED(hr)) {
           ALLEGRO_DEBUG("SubmitSourceBuffer failed: %s\n", get_error(hr));
        }
+#endif
     }
     STDMETHOD_(void, OnBufferEnd) (THIS_ void* pBufferContext) override {
         (void)pBufferContext;
         //ALLEGRO_DEBUG("OnBufferEnd called\n");
+       SetEvent(BUFFER_END_EVENT);
     }
     STDMETHOD_(void, OnLoopEnd) (THIS_ void* pBufferContext) override {
         (void)pBufferContext;
@@ -111,7 +131,66 @@ protected:
     STDMETHOD_(void, OnVoiceError) (THIS_ void* pBufferContext, HRESULT Error) override {
         ALLEGRO_ERROR("OnVoiceError called, Error=%s\n", get_error(Error));
     }
-} callback;
+};
+
+static DWORD WINAPI _xaudio2_update(LPVOID lpThreadParameter)
+{
+   ALLEGRO_VOICE *voice = (ALLEGRO_VOICE *)lpThreadParameter;
+   ALLEGRO_XAUDIO2_DATA *ex_data = (ALLEGRO_XAUDIO2_DATA *)voice->extra;
+   const int bytes_per_sample = ex_data->bits_per_sample >> 3;
+   const int buffer_size_bytes = buffer_size * bytes_per_sample * ex_data->channels;
+   LPBYTE silence = (LPBYTE)malloc(buffer_size_bytes);
+   while (!ex_data->stop_voice) {
+#if 0
+#else
+      XAUDIO2_VOICE_STATE state;
+      while (ex_data->voice->GetState(&state), state.BuffersQueued > buffers_count - 1)
+      {
+         switch (WaitForMultipleObjects(2, ex_data->callback->events, FALSE, INFINITE) - WAIT_OBJECT_0)
+         {
+            case BUFFER_END: break;
+            case WANT_QUIT:
+               /* Although we don't have fancy C++ objects here but use return hence C++.
+                * Either use C for ExitThread or C++ threads.
+                * We are on Windows after all so no need for al_create_thread
+                */
+               goto exit;
+         default:
+            ALLEGRO_ERROR("WaitForMultipleObjects failed in xaudio2 update thread\n");
+            goto exit;
+         }
+      }
+#endif
+      //al_wait_cond(voice->cond, voice->mutex);
+      unsigned int samples = buffer_size;// / bytes_per_sample / ex_data->channels;
+      const void* data = _al_voice_update(voice, voice->mutex, &samples);
+      if (data) {
+         ex_data->buffer.AudioBytes = samples * bytes_per_sample *ex_data->channels;
+         ex_data->buffer.pAudioData = (const BYTE *)data;
+      } else {
+#if 1
+         ex_data->buffer.AudioBytes = buffer_size_bytes;
+         ex_data->buffer.pAudioData = silence;
+#else
+         HRESULT hr = ex_data->voice->Discontinuity();
+         if (FAILED(hr)) {
+              ALLEGRO_ERROR("Discontinuity failed: %s\n", get_error(hr));
+              break;
+         }
+#endif
+      }
+      //ALLEGRO_DEBUG("Feeding audio buffer\n");
+      HRESULT hr = ex_data->voice->SubmitSourceBuffer(&ex_data->buffer, NULL);
+      if (FAILED(hr)) {
+         ALLEGRO_DEBUG("SubmitSourceBuffer failed: %s\n", get_error(hr));
+         //break;
+      }
+   }
+
+exit:
+   al_free(silence);
+   return 0;
+}
 
 #define REPORT_FAILED_1(expr) do { \
    HRESULT hr = expr; \
@@ -141,10 +220,13 @@ static int _xaudio2_open()
       com_initialized = 1;
    }
 
-   REPORT_FAILED_1( XAudio2Create(device.GetAddressOf()) );
+   IXAudio2 *raw_device = NULL;
+   REPORT_FAILED_1( XAudio2Create(&raw_device, 0, XAUDIO2_DEFAULT_PROCESSOR) );
+   device = raw_device;
    REPORT_FAILED_1( device->CreateMasteringVoice(&mastering_voice) );
 
    CONFIG_INT(buffer_size, MIN_BUFFER_SIZE);
+   CONFIG_INT(buffers_count, MIN_BUFFERS_COUNT);
 
    ALLEGRO_DEBUG("XAudio2Create succeeded\n");
 
@@ -341,22 +423,28 @@ static int _xaudio2_start_voice(ALLEGRO_VOICE *voice)
    }
 
    memset(&ex_data->buffer, 0, sizeof(ex_data->buffer));
-   ex_data->buffer.pContext = voice;
+
+#if 0
    hr = device->CreateSourceVoice(&ex_data->voice, (WAVEFORMATEX *)&ex_data->wave_fmt,
-      0, XAUDIO2_DEFAULT_FREQ_RATIO, static_cast<IXAudio2VoiceCallback*>(&callback), NULL, NULL);
+      0, XAUDIO2_DEFAULT_FREQ_RATIO, NULL, NULL, NULL);
+#else
+   ex_data->callback = std::make_unique<VoiceCallback>(voice);
+   hr = device->CreateSourceVoice(&ex_data->voice, (WAVEFORMATEX *)&ex_data->wave_fmt,
+      0, XAUDIO2_DEFAULT_FREQ_RATIO, static_cast<IXAudio2VoiceCallback *>(ex_data->callback.get()), NULL, NULL);
+#endif
    if (FAILED(hr)) {
       ALLEGRO_ERROR("CreateSourceVoice failed: %s\n", get_error(hr));
       return 1;
    }
 
-   // just enough to get it going
-   al_fill_silence(silence, 10, voice->depth, voice->chan_conf);
 
-   ex_data->buffer.pAudioData = (const BYTE *)silence;
-   ex_data->buffer.AudioBytes = 10 * (ex_data->bits_per_sample / 8) * ex_data->channels;
-
-   REPORT_FAILED_1( ex_data->voice->SubmitSourceBuffer(&ex_data->buffer) );
    REPORT_FAILED_1( ex_data->voice->Start() );
+
+   ex_data->thread = CreateThread(NULL, 0, _xaudio2_update, (LPVOID)voice, 0, NULL);
+   //SetThreadPriority(ex_data->thread, THREAD_PRIORITY_LOWEST);
+#ifdef DEBUGMODE
+   SetThreadDescription(ex_data->thread, L"Allegro XAudio2 updater");
+#endif
 
    ALLEGRO_INFO("Voice started\n");
    return 0;
@@ -375,8 +463,23 @@ static int _xaudio2_stop_voice(ALLEGRO_VOICE* voice)
       return 1;
    }
 
+   SetEvent(ex_data->callback->WANT_QUIT_EVENT);
+   WaitForSingleObject(ex_data->thread, INFINITE);
+   CloseHandle(ex_data->thread);
    REPORT_FAILED_1( ex_data->voice->Stop() );
    REPORT_FAILED_1( ex_data->voice->FlushSourceBuffers() );
+   ex_data->callback.reset();
+#if 0
+   /* if playing a sample */
+   if (!voice->is_streaming) {
+      ALLEGRO_DEBUG("Stopping non-streaming voice\n");
+      ex_data->voice->Stop();
+      ex_data->voice->FlushSourceBuffers();
+      //ex_data->buffer.pAudioDataSetCurrentPosition(0);
+      ALLEGRO_INFO("Non-streaming voice stopped\n");
+      return 0;
+   }
+#endif
 
    if (ex_data->stop_voice == 0) {
       ex_data->stop_voice = 1;
@@ -390,17 +493,15 @@ static int _xaudio2_stop_voice(ALLEGRO_VOICE* voice)
    and should return true if the voice is playing */
 static bool _xaudio2_voice_is_playing(const ALLEGRO_VOICE *voice)
 {
+   ALLEGRO_ASSERT(!voice->is_streaming);
    ALLEGRO_XAUDIO2_DATA *ex_data = (ALLEGRO_XAUDIO2_DATA *)voice->extra;
-   XAUDIO2_VOICE_STATE state;
 
    if (!ex_data) {
       ALLEGRO_WARN("ex_data is null\n");
       return false;
    }
 
-   ex_data->voice->GetState(&state, XAUDIO2_VOICE_NOSAMPLESPLAYED);
-
-   return state.BuffersQueued > 0;
+   return !ex_data->stop_voice;
 }
 
 static unsigned int _xaudio2_get_voice_position(const ALLEGRO_VOICE *voice)
