@@ -215,7 +215,7 @@ int al_get_num_audio_output_devices()
    if (_al_kcm_driver) {
       if (_al_kcm_driver->get_output_devices) {
          _AL_LIST* audio_devices = _al_kcm_driver->get_output_devices();
-         return _al_list_size(audio_devices);
+         return (int)_al_list_size(audio_devices);
       }
       else {
          return -1;

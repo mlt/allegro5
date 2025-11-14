@@ -57,6 +57,7 @@ class Allegro:
             "al_fixed": c_int,
             "HWND": c_void_p,
             "char*": _AL_UTF8String,
+            "LP_c_int": POINTER(c_int),
 
             # hack: this probably shouldn't be in the public docs
             "postprocess_callback_t": c_void_p,

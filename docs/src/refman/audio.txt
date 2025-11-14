@@ -1425,6 +1425,20 @@ a voice.
 
 See also: [ALLEGRO_MIXER], [ALLEGRO_SAMPLE], [ALLEGRO_AUDIO_STREAM]
 
+### API: al_probe_voice
+
+Queries the driver and the underlying audio subsystem whether format is
+supported.  The function returns 0 if the format is supported or if the audio
+driver does not support such checks.  If an alternative format is proposed, the
+function returns 1.  The function returns -1, if the format is not supported and
+no alternatives are provided by the underlying audio subsystem.
+
+This function is only meant to be used with Windows Core Audio (WASAPI) driver
+in cooperative mode where there is no freedom selecting format different from
+that set by Windows.
+
+Since: 5.2.12
+
 ### API: al_create_voice
 
 Creates a voice structure and allocates a voice from the digital sound driver.

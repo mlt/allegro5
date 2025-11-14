@@ -60,6 +60,24 @@ const void *_al_voice_update(ALLEGRO_VOICE *voice, ALLEGRO_MUTEX *mutex,
 }
 
 
+/* al_probe_voice:
+ *  Probes the audio format of the voice.
+ *  Returns:
+ *     0 - if the format is supported or if the driver does not support checks,
+ *     1 - if adjustment was made,
+ *    -1 - if format is not supported and there is no proposed alternative.
+ */
+int al_probe_voice(unsigned int *freq, ALLEGRO_AUDIO_DEPTH *depth,
+    ALLEGRO_CHANNEL_CONF *chan_conf)
+{
+   ASSERT(_al_kcm_driver);
+   ASSERT(freq);
+   ASSERT(depth);
+   ASSERT(chan_conf);
+   return _al_kcm_driver->probe_format(freq, depth, chan_conf);
+}
+
+
 /* Function: al_create_voice
  */
 ALLEGRO_VOICE *al_create_voice(unsigned int freq,
@@ -331,6 +349,7 @@ bool al_attach_mixer_to_voice(ALLEGRO_MIXER *mixer, ALLEGRO_VOICE *voice)
 
    if (voice->chan_conf != mixer->ss.spl_data.chan_conf ||
          voice->frequency != mixer->ss.spl_data.frequency) {
+      ALLEGRO_ERROR("Channel configuration and frequency for mixer and voice do not match\n");
       return false;
    }
 

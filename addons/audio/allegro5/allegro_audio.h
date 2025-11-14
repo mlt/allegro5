@@ -332,6 +332,9 @@ ALLEGRO_KCM_AUDIO_FUNC(bool, al_set_mixer_playing, (ALLEGRO_MIXER *mixer, bool v
 ALLEGRO_KCM_AUDIO_FUNC(bool, al_detach_mixer, (ALLEGRO_MIXER *mixer));
 
 /* Voice functions */
+ALLEGRO_KCM_AUDIO_FUNC(int, al_probe_voice, (unsigned int *freq,
+      ALLEGRO_AUDIO_DEPTH *depth,
+      ALLEGRO_CHANNEL_CONF *chan_conf));
 ALLEGRO_KCM_AUDIO_FUNC(ALLEGRO_VOICE*, al_create_voice, (unsigned int freq,
       ALLEGRO_AUDIO_DEPTH depth,
       ALLEGRO_CHANNEL_CONF chan_conf));

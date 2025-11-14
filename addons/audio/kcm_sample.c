@@ -62,11 +62,12 @@ static int string_to_depth(const char *s)
 /* Creates the default voice and mixer if they haven't been created yet. */
 static bool create_default_mixer(void)
 {
-   int voice_frequency = 44100;
-   int voice_depth = ALLEGRO_AUDIO_DEPTH_INT16;
-   int mixer_frequency = 44100;
-   int mixer_depth = ALLEGRO_AUDIO_DEPTH_FLOAT32;
+   unsigned int voice_frequency = 44100;
+   ALLEGRO_AUDIO_DEPTH voice_depth = ALLEGRO_AUDIO_DEPTH_INT16;
+   unsigned int mixer_frequency = 44100;
+   ALLEGRO_AUDIO_DEPTH mixer_depth = ALLEGRO_AUDIO_DEPTH_FLOAT32;
 
+   // mlt: why different settings for voice and mixer if they are compared later on in al_attach_mixer_to_voice?
    ALLEGRO_CONFIG *config = al_get_system_config();
    const char *p;
    p = al_get_config_value(config, "audio", "primary_voice_frequency");
@@ -86,9 +87,18 @@ static bool create_default_mixer(void)
       mixer_depth = string_to_depth(p);
    }
 
+   ALLEGRO_CHANNEL_CONF chan_conf = ALLEGRO_CHANNEL_CONF_2;
    if (!allegro_voice) {
+      /* check preferred configuration, see WASAPI */
+      if (al_probe_voice(&voice_frequency , &voice_depth, &chan_conf) == 1)
+      {
+         ALLEGRO_WARN("Overriding voice (and mixer) configuration\n");
+         mixer_depth = voice_depth;
+         mixer_frequency = voice_frequency;
+      }
+
       allegro_voice = al_create_voice(voice_frequency, voice_depth,
-         ALLEGRO_CHANNEL_CONF_2);
+         chan_conf);
       if (!allegro_voice) {
          ALLEGRO_ERROR("al_create_voice failed\n");
          goto Error;
@@ -97,7 +107,7 @@ static bool create_default_mixer(void)
 
    if (!allegro_mixer) {
       allegro_mixer = al_create_mixer(mixer_frequency, mixer_depth,
-         ALLEGRO_CHANNEL_CONF_2);
+         chan_conf);
       if (!allegro_mixer) {
          ALLEGRO_ERROR("al_create_voice failed\n");
          goto Error;
